@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,8 @@ import pytest
 from app.routes import Router
 from app.services.dataset_builder import DatasetBuilder
 from app.services.query_service import QueryService
+
+FIXED_NOW = datetime(2026, 4, 7, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture(scope="session")
@@ -33,13 +36,26 @@ def exported_small_data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     data_dir = tmp_path_factory.mktemp("lunar-data")
     builder = DatasetBuilder(data_dir)
-    builder.build_and_export(2023, 2024)
+    builder.build_and_export(2024, 2031)
     return data_dir
 
 
 @pytest.fixture(scope="session")
-def router(exported_small_data_dir: Path) -> Router:
+def fixed_now() -> datetime:
+    """Return a stable clock instant for rolling-window tests."""
+
+    return FIXED_NOW
+
+
+@pytest.fixture(scope="session")
+def query_service(exported_small_data_dir: Path, fixed_now: datetime) -> QueryService:
+    """Return a query service backed by exported data and a stable clock."""
+
+    return QueryService.load(exported_small_data_dir, now_provider=lambda: fixed_now)
+
+
+@pytest.fixture(scope="session")
+def router(query_service: QueryService) -> Router:
     """Return the HTTP router backed by the exported dataset."""
 
-    service = QueryService.load(exported_small_data_dir)
-    return Router(service)
+    return Router(query_service)

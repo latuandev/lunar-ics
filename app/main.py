@@ -11,6 +11,7 @@ from app.config import Settings
 from app.logging_config import configure_logging
 from app.lunar.validators import validate_bundle
 from app.server import serve
+from app.services.calendar_feed_service import validate_rolling_years
 from app.services.dataset_builder import DatasetBuilder
 from app.services.query_service import QueryService
 
@@ -38,6 +39,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Validate the exported JSON bundle instead of rebuilding in memory",
     )
+
+    rolling = subparsers.add_parser(
+        "build-rolling-ics",
+        help="Build the rolling ICS feed for the current Vietnam-year window",
+    )
+    rolling.add_argument("--years", type=int, default=5)
+    rolling.add_argument("--data-dir", type=Path, default=settings.data_dir)
 
     run = subparsers.add_parser("serve", help="Run the stdlib HTTP server")
     run.add_argument("--host", default=settings.app_host)
@@ -109,9 +117,10 @@ def run_smoke_test(args: argparse.Namespace) -> int:
 
     endpoints = [
         "/healthz",
+        "/api/v1/calendar/rolling-window",
         "/api/v1/date/2024-02-10",
         "/api/v1/lunar-to-solar?year=2024&month=1&day=1&leap=0",
-        "/calendar/vn_lunar_2000_2100.ics",
+        "/calendar/vn_lunar_5y.ics",
     ]
     for endpoint in endpoints:
         with urlopen(args.base_url.rstrip("/") + endpoint) as response:
@@ -131,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_build_dataset(args)
     if args.command == "verify":
         return run_verify(args)
+    if args.command == "build-rolling-ics":
+        return run_build_rolling_ics(args)
     if args.command == "serve":
         return run_serve(args)
     if args.command == "smoke-test":
@@ -138,6 +149,21 @@ def main(argv: list[str] | None = None) -> int:
     raise ValueError(f"Unsupported command: {args.command}")
 
 
+def run_build_rolling_ics(args: argparse.Namespace) -> int:
+    """Build the rolling ICS feed for the configured data directory."""
+
+    validated_years = validate_rolling_years(args.years)
+    query_service = ensure_dataset(args.data_dir)
+    output_path = query_service.calendar_feed_service.ensure_rolling_ics(validated_years)
+    window = query_service.calendar_feed_service.get_rolling_window(validated_years)
+    LOGGER.info(
+        "Built rolling ICS feed %s covering %s..%s",
+        output_path,
+        window.start_year,
+        window.end_year,
+    )
+    return 0
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
-
