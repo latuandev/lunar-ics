@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from app.serializers.csv_export import CSV_COLUMNS
 from app.serializers.ics_export import build_ics_calendar
+from app.services.calendar_feed_service import DEFAULT_ROLLING_YEARS, validate_rolling_years
 from app.services.query_service import QueryService
 from app.types import JSONDict
 from app.utils.date_utils import parse_iso_date
@@ -59,6 +60,8 @@ class Router:
             return self._solar_to_lunar(self._parse_iso_date(value))
         if path == "/api/v1/lunar-to-solar":
             return self._lunar_to_solar(query)
+        if path == "/api/v1/calendar/rolling-window":
+            return self._rolling_window(DEFAULT_ROLLING_YEARS)
         if path.startswith("/api/v1/year/"):
             year_text = path.removeprefix("/api/v1/year/")
             return self._year(self._parse_int(year_text, "year"), query.get("format", ["json"])[0])
@@ -74,6 +77,11 @@ class Router:
             return self._range(start, end)
         if path == "/calendar/vn_lunar_2000_2100.ics":
             return self._file_response("ics/vn_lunar_2000_2100.ics", "text/calendar; charset=utf-8")
+        if path == "/calendar/vn_lunar_5y.ics":
+            return self._rolling_ics(DEFAULT_ROLLING_YEARS)
+        if path.startswith("/calendar/rolling/") and path.endswith(".ics"):
+            years_text = path.removeprefix("/calendar/rolling/").removesuffix(".ics")
+            return self._rolling_ics(self._parse_int(years_text, "years"))
         if path.startswith("/calendar/year/") and path.endswith(".ics"):
             year = self._parse_int(
                 path.removeprefix("/calendar/year/").removesuffix(".ics"),
@@ -122,6 +130,30 @@ class Router:
         except ValueError as exc:
             raise HttpError(400, "invalid_input", str(exc)) from exc
         return self._json(200, record.to_dict())
+
+    def _rolling_window(self, years: int) -> tuple[int, str, bytes, dict[str, str]]:
+        try:
+            validated_years = validate_rolling_years(years)
+        except ValueError as exc:
+            raise HttpError(400, "invalid_input", str(exc)) from exc
+        payload = self.query_service.calendar_feed_service.get_rolling_window(validated_years)
+        return self._json(200, payload.to_dict())
+
+    def _rolling_ics(self, years: int) -> tuple[int, str, bytes, dict[str, str]]:
+        try:
+            validated_years = validate_rolling_years(years)
+            path = self.query_service.calendar_feed_service.ensure_rolling_ics(validated_years)
+        except ValueError as exc:
+            raise HttpError(400, "invalid_input", str(exc)) from exc
+        headers = {
+            "Cache-Control": "public, max-age=3600",
+            "Content-Disposition": f'inline; filename="{path.name}"',
+        }
+        return self._path_response(
+            path,
+            content_type="text/calendar; charset=utf-8",
+            headers=headers,
+        )
 
     def _lunar_to_solar(
         self, query: dict[str, list[str]]
@@ -235,6 +267,7 @@ class Router:
         path: Path,
         *,
         content_type: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[int, str, bytes, dict[str, str]]:
         if content_type is None:
             suffix = path.suffix.lower()
@@ -246,11 +279,13 @@ class Router:
                 content_type = "text/calendar; charset=utf-8"
             else:
                 content_type = "application/octet-stream"
-        headers = {
+        response_headers = {
             "Cache-Control": "public, max-age=86400",
             "Content-Disposition": f'inline; filename="{path.name}"',
         }
-        return 200, content_type, path.read_bytes(), headers
+        if headers:
+            response_headers.update(headers)
+        return 200, content_type, path.read_bytes(), response_headers
 
     def _json(self, status: int, payload: JSONDict) -> tuple[int, str, bytes, dict[str, str]]:
         import json

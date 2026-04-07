@@ -19,6 +19,18 @@ def test_healthz(router) -> None:
     assert payload == {"status": "ok"}
 
 
+def test_calendar_rolling_window_metadata(router) -> None:
+    payload = dispatch_json(router, "/api/v1/calendar/rolling-window")
+    assert payload == {
+        "timezone": "Asia/Ho_Chi_Minh",
+        "current_local_date": "2026-04-07",
+        "start_year": 2026,
+        "end_year": 2030,
+        "years": 5,
+        "feed_url": "/calendar/vn_lunar_5y.ics",
+    }
+
+
 def test_date_lookup(router) -> None:
     payload = dispatch_json(router, "/api/v1/date/2024-02-10")
     assert payload["lunar_day"] == 1
@@ -48,6 +60,11 @@ def test_year_endpoint_and_formats(router) -> None:
 
 
 def test_ics_and_download_endpoints(router) -> None:
+    status, content_type, body, _ = router.dispatch("/calendar/vn_lunar_5y.ics")
+    assert status == 200
+    assert content_type.startswith("text/calendar")
+    assert body.startswith(b"BEGIN:VCALENDAR")
+
     status, content_type, body, _ = router.dispatch("/calendar/vn_lunar_2000_2100.ics")
     assert status == 200
     assert content_type.startswith("text/calendar")

@@ -2,30 +2,48 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from typing import Callable
 
 from app.config import MAX_RANGE_DAYS
 from app.lunar.converter import LunarConverter
 from app.lunar.models import DatasetBundle, DayRecord
+from app.services.calendar_feed_service import CalendarFeedService
 from app.services.dataset_builder import DatasetBuilder
 
 
 class QueryService:
     """In-memory query facade over the generated dataset."""
 
-    def __init__(self, bundle: DatasetBundle, data_dir: Path) -> None:
+    def __init__(
+        self,
+        bundle: DatasetBundle,
+        data_dir: Path,
+        *,
+        now_provider: Callable[[], datetime] | None = None,
+    ) -> None:
         self.bundle = bundle
         self.data_dir = data_dir
         self.converter = LunarConverter(bundle)
+        self.calendar_feed_service = CalendarFeedService(
+            bundle=bundle,
+            data_dir=data_dir,
+            now_provider=now_provider,
+        )
 
     @classmethod
-    def load(cls, data_dir: Path) -> "QueryService":
+    def load(
+        cls,
+        data_dir: Path,
+        *,
+        now_provider: Callable[[], datetime] | None = None,
+    ) -> "QueryService":
         """Load the canonical dataset from disk."""
 
         builder = DatasetBuilder(data_dir)
         bundle = builder.load_bundle()
-        return cls(bundle=bundle, data_dir=data_dir)
+        return cls(bundle=bundle, data_dir=data_dir, now_provider=now_provider)
 
     def ensure_supported_date(self, value: date) -> None:
         """Validate that a Gregorian date is inside the supported range."""
@@ -108,4 +126,3 @@ class QueryService:
         if not candidate.exists() or not candidate.is_file():
             raise ValueError("requested file does not exist")
         return candidate
-

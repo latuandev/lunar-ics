@@ -11,6 +11,7 @@ from app.lunar.vietnamese_rules import build_dataset_bundle
 from app.serializers.csv_export import write_csv_file
 from app.serializers.ics_export import write_ics_file
 from app.serializers.json_export import read_json_file, write_json_file
+from app.services.calendar_feed_service import CalendarFeedService
 
 
 class DatasetBuilder:
@@ -71,6 +72,14 @@ class DatasetBuilder:
                 metadata=bundle.metadata,
                 calendar_name=f"Lịch âm Việt Nam {year}",
             )
+
+        feed_service = CalendarFeedService(bundle=bundle, data_dir=self.data_dir)
+        rolling_window = feed_service.get_rolling_window()
+        if (
+            bundle.metadata.from_year <= rolling_window.start_year
+            and rolling_window.end_year <= bundle.metadata.to_year
+        ):
+            feed_service.ensure_rolling_ics()
 
     def build_and_export(self, from_year: int, to_year: int) -> DatasetBundle:
         """Build, validate, and export a dataset bundle."""
