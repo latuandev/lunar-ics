@@ -1,7 +1,6 @@
-"""Stdlib HTTP server entrypoint."""
-
 from __future__ import annotations
 
+import json
 import logging
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,16 +18,12 @@ class RequestHandler(BaseHTTPRequestHandler):
     router: ClassVar[Router]
     server_version = "LunarICS/1.0"
 
-    def do_GET(self) -> None:  # noqa: N802
-        """Handle GET requests."""
-
+    def _handle(self, include_body: bool) -> None:
         try:
             status, content_type, body, extra_headers = self.router.dispatch(self.path)
         except HttpError as exc:
             status = exc.status_code
             content_type = "application/json; charset=utf-8"
-            import json
-
             body = json.dumps(
                 error_payload(exc.code, exc.message),
                 ensure_ascii=False,
@@ -39,8 +34,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             LOGGER.exception("Unhandled request error")
             status = HTTPStatus.INTERNAL_SERVER_ERROR
             content_type = "application/json; charset=utf-8"
-            import json
-
             body = json.dumps(
                 error_payload("internal_error", "internal server error"),
                 ensure_ascii=False,
@@ -54,11 +47,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         for key, value in extra_headers.items():
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(body)
+
+        if include_body:
+            self.wfile.write(body)
+
+    def do_GET(self) -> None:  # noqa: N802
+        self._handle(include_body=True)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        self._handle(include_body=False)
 
     def log_message(self, format: str, *args) -> None:
-        """Route access logs through the standard logger."""
-
         LOGGER.info(
             "%s - - [%s] %s",
             self.client_address[0],
@@ -68,19 +67,14 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 
 def create_http_server(host: str, port: int, query_service: QueryService) -> ThreadingHTTPServer:
-    """Create the threaded HTTP server instance."""
-
     RequestHandler.router = Router(query_service)
     return ThreadingHTTPServer((host, port), RequestHandler)
 
 
 def serve(host: str, port: int, query_service: QueryService) -> None:
-    """Run the HTTP server until interrupted."""
-
     server = create_http_server(host, port, query_service)
     LOGGER.info("Serving on http://%s:%s", host, port)
     try:
         server.serve_forever()
     finally:
         server.server_close()
-
