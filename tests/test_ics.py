@@ -56,3 +56,20 @@ def test_ics_dates_are_all_day_and_monotonic(small_bundle) -> None:
             record.gregorian_date + __import__("datetime").timedelta(days=1)
         ).strftime("%Y%m%d")
 
+
+def test_rolling_5y_feed_event_count_and_uid_uniqueness(query_service) -> None:
+    path = query_service.calendar_feed_service.ensure_rolling_ics()
+    content = path.read_bytes().decode("utf-8")
+    events = parse_events(content)
+    expected_records = query_service.calendar_feed_service.build_calendar_dataset_for_year_range(
+        2026,
+        2030,
+    )
+
+    assert content.startswith("BEGIN:VCALENDAR\r\n")
+    assert content.endswith("END:VCALENDAR\r\n")
+    assert len(events) == len(expected_records) == 1826
+    assert "X-WR-CALNAME:Lịch âm Việt Nam rolling 5 years" in content
+
+    uids = {event["UID"] for event in events}
+    assert len(uids) == len(events)
